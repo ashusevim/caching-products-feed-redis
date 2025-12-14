@@ -1,4 +1,8 @@
-import express, { Request, Response, NextFunction } from "express";
+import express, {
+    type Request,
+    type Response,
+    type NextFunction,
+} from "express";
 import { createClient } from "redis";
 
 const app = express();
@@ -44,20 +48,28 @@ app.use(rateLimiter);
 app.get("/products", async (req: Request, res: Response) => {
     const key = "products_feed";
 
-    const cachedData = await client.get(key);
+    // ask the Redis for the data
+    // if HIT -> return it immediately
+    // if MISS -> fetch the data from the DB, store in cache and then return it
+    try {
+        const cachedData = await client.get(key);
 
-    if (cachedData) {
-        const data = JSON.parse(cachedData);
-        return res.status(200).json(data);
-    } else {
-        try {
-            const db_data = await getProductFeedFromDB();
-            await client.set(key, String(db_data));
-            await client.expire(key, 30);
-            return res.status(300).json(db_data);
-        } catch (error) {
-            console.log("Error fetching data from the DB", error);
+        if (cachedData) {
+            console.log("Cache HIT");
+            res.status(200).json(JSON.parse(cachedData));
+            // stop the execution as we got the data from the cache
+            return;
         }
+
+        console.log("Cache MISS");
+        const db_data = await getProductFeedFromDB();
+        await client.setEx(key, 30, JSON.stringify(db_data));
+        res.status(200).json(db_data);
+    } catch (error) {
+        console.log("Server error");
+        res.status(500).json({
+            message: "Internal server error",
+        });
     }
 });
 
