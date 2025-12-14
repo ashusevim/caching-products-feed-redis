@@ -20,16 +20,45 @@ const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
     if (requestCount == 1) {
         await client.expire(key, 60);
     } else if (requestCount > 10) {
-        res.status(429);
+        res.status(429).json({
+            message: "too many requests",
+        });
     } else {
         next();
     }
 };
 
+const getProductFeedFromDB = async () => {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve([
+                { id: 1, name: "iPhone 15", price: 999 },
+                { id: 2, name: "MacBook Pro", price: 1999 },
+            ]);
+        }, 2000);
+    });
+};
+
 app.use(rateLimiter);
 
 app.get("/products", async (req: Request, res: Response) => {
-    res.json({ message: "Here is the product feed" });
+    const key = "products_feed";
+
+    const cachedData = await client.get(key);
+
+    if (cachedData) {
+        const data = JSON.parse(cachedData);
+        return res.status(200).json(data);
+    } else {
+        try {
+            const db_data = await getProductFeedFromDB();
+            await client.set(key, String(db_data));
+            await client.expire(key, 30);
+            return res.status(300).json(db_data);
+        } catch (error) {
+            console.log("Error fetching data from the DB", error);
+        }
+    }
 });
 
 app.listen(3000, () => {
