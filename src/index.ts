@@ -6,9 +6,17 @@ import express, {
 import { createClient } from "redis";
 
 const app = express();
-const client = createClient();
 
-await client.connect();
+const client = await createClient({
+    username: "default",
+    password: "cGPEZaasfUtw9PbgxDChWYHwf4bAroqF",
+    socket: {
+        host: "redis-14032.crce179.ap-south-1-1.ec2.cloud.redislabs.com",
+        port: 14032,
+    },
+})
+    .on("error", (err) => console.log("Redis Client Error", err))
+    .connect();
 
 const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
     // we would be using user ip address as the unique identifier
@@ -63,7 +71,7 @@ app.get("/products", async (req: Request, res: Response) => {
 
         console.log("Cache MISS");
         const db_data = await getProductFeedFromDB();
-        await client.setEx(key, 30, JSON.stringify(db_data));
+        await client.setEx(key, 60, JSON.stringify(db_data));
         res.status(200).json(db_data);
     } catch (error) {
         console.log("Server error");
