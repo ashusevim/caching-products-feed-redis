@@ -3,8 +3,7 @@ import express, {
     type Response,
     type NextFunction,
 } from "express";
-import client from "./client.js";
-
+import client from "./client.ts";
 const app = express();
 
 // connect to redis
@@ -38,6 +37,8 @@ const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
     }
 };
 
+app.use(rateLimiter);
+
 // DB simulation (I don't wanted to set the database and all just to learn REDIS)
 const getProductFeedFromDB = async () => {
     return new Promise((resolve) => {
@@ -49,8 +50,6 @@ const getProductFeedFromDB = async () => {
         }, 2000);
     });
 };
-
-app.use(rateLimiter);
 
 /*  ask the Redis for the data
     if HIT -> return it immediately
