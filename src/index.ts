@@ -3,43 +3,42 @@ import express, {
     type Response,
     type NextFunction,
 } from "express";
-import { createClient } from "redis";
+import client from "./client.js";
 
 const app = express();
 
-const client = await createClient({
-    username: "default",
-    password: "cGPEZaasfUtw9PbgxDChWYHwf4bAroqF",
-    socket: {
-        host: "redis-14032.crce179.ap-south-1-1.ec2.cloud.redislabs.com",
-        port: 14032,
-    },
-})
-    .on("error", (err) => console.log("Redis Client Error", err))
-    .connect();
+// connect to redis
+await client.connect();
 
 const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
     // we would be using user ip address as the unique identifier
     const userIP = req.ip;
-    const key = `rate_limit:${userIP}`;
+    const key = `rate_limit:${userIP || "127.0.0.1"}`;
 
     // 1. Increment the key (INCR)
     // 2. If it's the first request, set the expiry to 60s (EXPIRE)
     // 3. If the count > 10, return a 429 error
     // 4. Otherwise, allow the request (next())
-    const requestCount = await client.incr(key);
 
-    if (requestCount == 1) {
-        await client.expire(key, 60);
-    } else if (requestCount > 10) {
-        res.status(429).json({
-            message: "too many requests",
-        });
-    } else {
-        next();
+    try {
+        const requestCount = await client.incr(key);
+
+        if (requestCount == 1) {
+            await client.expire(key, 60);
+            next();
+        } else if (requestCount > 10) {
+            res.status(429).json({
+                message: "too many requests",
+            });
+        } else {
+            next();
+        }
+    } catch (error) {
+        next(error);
     }
 };
 
+// DB simulation (I don't wanted to set the database and all just to learn REDIS)
 const getProductFeedFromDB = async () => {
     return new Promise((resolve) => {
         setTimeout(() => {
@@ -53,12 +52,13 @@ const getProductFeedFromDB = async () => {
 
 app.use(rateLimiter);
 
+/*  ask the Redis for the data
+    if HIT -> return it immediately
+    if MISS -> fetch the data from the DB, store in cache and then return it
+*/
 app.get("/products", async (req: Request, res: Response) => {
     const key = "products_feed";
 
-    // ask the Redis for the data
-    // if HIT -> return it immediately
-    // if MISS -> fetch the data from the DB, store in cache and then return it
     try {
         const cachedData = await client.get(key);
 
@@ -71,7 +71,9 @@ app.get("/products", async (req: Request, res: Response) => {
 
         console.log("Cache MISS");
         const db_data = await getProductFeedFromDB();
+
         await client.setEx(key, 60, JSON.stringify(db_data));
+
         res.status(200).json(db_data);
     } catch (error) {
         console.log("Server error");
