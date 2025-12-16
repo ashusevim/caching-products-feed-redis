@@ -3,11 +3,23 @@ import express, {
     type Response,
     type NextFunction,
 } from "express";
-import client from "./client.ts";
-const app = express();
+import { client, subscriber, connectRedis } from "./client.ts";
 
-// connect to redis
-await client.connect();
+const app = express();
+app.use(express.json());
+
+await connectRedis();
+
+// to check if the line reaches here
+console.log("Subscribing to product_updates...");
+
+await subscriber.subscribe("product_updates", async (message) => {
+    console.log(`Update Received: ${message}`);
+    // delete the old data immediately
+    await client.del("products_feed");
+
+    console.log("Cache cleared!. ");
+});
 
 const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
     // we would be using user ip address as the unique identifier
@@ -44,7 +56,7 @@ const getProductFeedFromDB = async () => {
     return new Promise((resolve) => {
         setTimeout(() => {
             resolve([
-                { id: 1, name: "iPhone 15", price: 999 },
+                { id: 1, name: "iPhone 15", price: 899 },
                 { id: 2, name: "MacBook Pro", price: 1999 },
             ]);
         }, 2000);
@@ -55,7 +67,7 @@ const getProductFeedFromDB = async () => {
     if HIT -> return it immediately
     if MISS -> fetch the data from the DB, store in cache and then return it
 */
-app.get("/products", async (req: Request, res: Response) => {
+app.get("/products", async (_req: Request, res: Response) => {
     const key = "products_feed";
 
     try {
@@ -78,6 +90,34 @@ app.get("/products", async (req: Request, res: Response) => {
         console.log("Server error");
         res.status(500).json({
             message: "Internal server error",
+        });
+    }
+});
+
+app.post("/orders", async (req: Request, res: Response) => {
+    const { productId, quantity } = req.body;
+
+    if (!productId || !quantity) {
+        console.log("ProductId or quantity are missing!");
+        res.status(400).json({
+            message: "productid or quantity are missing!",
+        });
+    }
+
+    try {
+        const orderDetails = await client.xAdd("order_stream", "*", {
+            productId: String(productId),
+            quantity: String(quantity),
+        });
+
+        res.status(201).json({
+            message: "Order Received Successfully",
+            orderId: orderDetails,
+        });
+    } catch (error) {
+        console.log(error);
+        res.status(500).json({
+            message: "could not process order",
         });
     }
 });
