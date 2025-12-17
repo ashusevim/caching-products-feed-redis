@@ -27,9 +27,9 @@ const processOrders = async () => {
 
     const key = "order_stream";
     const group = "our_app_group";
-    const consumerName = "worker-1"; // UUID or pod name in production
+    const consumerName = `worker_${Math.random().toString(36).substring(7)}`; // UUID or pod name in production
 
-    console.log("Group worker loading");
+    console.log(`Group worker starting as: ${consumerName}`);
 
     try {
         await workerClient.xGroupCreate(key, group, "$", { MKSTREAM: true });
