@@ -58,7 +58,7 @@ const processOrders = async () => {
 
                 for (const msg of myStream.messages) {
                     console.log(`Processing order: ${msg.id}`);
-                    console.log(`ProductL: ${msg.message.productId}`);
+                    console.log(`Product: ${msg.message.productId}`);
 
                     // simulating DB processing time for tasks like Save to DB, email user
                     await new Promise((r) => setTimeout(r, 1000));
