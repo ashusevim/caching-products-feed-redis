@@ -3,7 +3,7 @@ import express, {
     type Response,
     type NextFunction,
 } from "express";
-import { client, subscriber, connectRedis } from "./client.ts";
+import { client, subscriber, connectRedis, pool } from "./client.ts";
 
 const app = express();
 app.use(express.json());
@@ -20,6 +20,53 @@ await subscriber.subscribe("product_updates", async (message) => {
 
     console.log("Cache cleared!. ");
 });
+
+const processOrders = async () => {
+    const workerClient = client.duplicate();
+    await workerClient.connect();
+
+    const key = "order_stream";
+    // "$" means "only new messages from now on"
+    let lastId = "$";
+
+    console.log("Worker is listening to new orders");
+
+    while (true) {
+        try {
+            await pool.ping();
+            const response = (await workerClient.xRead(
+                [
+                    {
+                        key: key,
+                        id: lastId,
+                    },
+                ],
+                {
+                    BLOCK: 0, // 0 = Wait forever until a message arrives
+                    COUNT: 1, // Process 1 message at a time
+                },
+            )) as any;
+
+            if (response) {
+                const streamData = response[0];
+                const messages = streamData.messages;
+
+                for (const msg of messages) {
+                    console.log(`Processing order: ${msg.id}`);
+                    console.log(
+                        `Product: ${msg.message.productId}, Qty: ${msg.message.quantity}`,
+                    );
+
+                    // move the cursor so we don't read the same data again
+                    lastId = msg.id;
+                }
+            }
+        } catch (error) {
+            console.log("Stream error: ", error);
+            return new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+    }
+};
 
 const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
     // we would be using user ip address as the unique identifier
@@ -125,3 +172,5 @@ app.post("/orders", async (req: Request, res: Response) => {
 app.listen(3000, () => {
     console.log(`server running on port: 3000`);
 });
+
+processOrders();
