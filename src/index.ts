@@ -3,7 +3,7 @@ import express, {
     type Response,
     type NextFunction,
 } from "express";
-import { client, subscriber, connectRedis, pool } from "./client.ts";
+import { client, subscriber, connectRedis } from "./client.ts";
 
 const app = express();
 app.use(express.json());
@@ -26,44 +26,49 @@ const processOrders = async () => {
     await workerClient.connect();
 
     const key = "order_stream";
-    // "$" means "only new messages from now on"
-    let lastId = "$";
+    const group = "our_app_group";
+    const consumerName = "worker-1"; // UUID or pod name in production
 
-    console.log("Worker is listening to new orders");
+    console.log("Group worker loading");
+
+    try {
+        await workerClient.xGroupCreate(key, group, "$", { MKSTREAM: true });
+        console.log("created consumer group!");
+    } catch (error) {}
 
     while (true) {
         try {
-            await pool.ping();
-            const response = (await workerClient.xRead(
+            const response = (await workerClient.xReadGroup(
+                group,
+                consumerName,
                 [
                     {
                         key: key,
-                        id: lastId,
+                        id: ">", // > meaning giving new undelivered messages
                     },
                 ],
                 {
-                    BLOCK: 0, // 0 = Wait forever until a message arrives
-                    COUNT: 1, // Process 1 message at a time
+                    BLOCK: 0, // wait forever
+                    COUNT: 1,
                 },
             )) as any;
 
             if (response) {
-                const streamData = response[0];
-                const messages = streamData.messages;
+                const myStream = response[0];
 
-                for (const msg of messages) {
+                for (const msg of myStream.messages) {
                     console.log(`Processing order: ${msg.id}`);
-                    console.log(
-                        `Product: ${msg.message.productId}, Qty: ${msg.message.quantity}`,
-                    );
+                    console.log(`ProductL: ${msg.message.productId}`);
 
-                    // move the cursor so we don't read the same data again
-                    lastId = msg.id;
+                    // simulating DB processing time for tasks like Save to DB, email user
+                    await new Promise((r) => setTimeout(r, 1000));
+
+                    await workerClient.xAck(key, group, msg.id);
+                    console.log(`Acknowledged: ${msg.id}`);
                 }
             }
         } catch (error) {
-            console.log("Stream error: ", error);
-            return new Promise((resolve) => setTimeout(resolve, 1000));
+            console.log("Worker error: ", error);
         }
     }
 };

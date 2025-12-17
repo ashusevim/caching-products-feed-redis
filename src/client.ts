@@ -1,4 +1,4 @@
-import { createClient, createClientPool } from "redis";
+import { createClient } from "redis";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -20,8 +20,6 @@ const client = createClient({
     },
 });
 
-const pool = createClientPool();
-
 const subscriber = client.duplicate();
 
 client.on("error", (error) => {
@@ -32,13 +30,9 @@ subscriber.on("error", (error) => {
     console.log("subscriber client error", error);
 });
 
-pool.on("error", (error) => {
-    console.log("Client pooling error", error);
-});
-
 const connectRedis = async () => {
     if (!client.isOpen) await client.connect();
     if (!subscriber.isOpen) await subscriber.connect();
 };
 
-export { client, subscriber, connectRedis, pool };
+export { client, subscriber, connectRedis };
